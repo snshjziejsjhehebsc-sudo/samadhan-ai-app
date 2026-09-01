@@ -1,0 +1,788 @@
+package com.example.ui.screens
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.speech.tts.TextToSpeech
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import com.example.data.model.ChatMessageEntity
+import com.example.ui.components.ChatInputField
+import com.example.ui.components.MarkdownText
+import com.example.ui.components.SettingsDialog
+import com.example.ui.components.VoiceInputDialog
+import com.example.ui.theme.AccentUserBubbleLight
+import kotlinx.coroutines.launch
+import java.util.Locale
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatScreen(
+    viewModel: ChatViewModel,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val activeConversationId by viewModel.activeConversationId.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val inputText by viewModel.inputText.collectAsStateWithLifecycle()
+    val selectedImageUri by viewModel.selectedImageUri.collectAsStateWithLifecycle()
+    val isImageMode by viewModel.isImageMode.collectAsStateWithLifecycle()
+    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
+    val selectedModel by viewModel.selectedModel.collectAsStateWithLifecycle()
+    val customApiKey by viewModel.customApiKey.collectAsStateWithLifecycle()
+
+    var showVoiceDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+
+    // Media Picker for image attachments (Google Play compliant photo picker)
+    val mediaPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        viewModel.setSelectedImageUri(uri)
+    }
+
+    // TextToSpeech
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+    DisposableEffect(Unit) {
+        val ttsInstance = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.getDefault()
+            }
+        }
+        tts = ttsInstance
+        onDispose {
+            ttsInstance.stop()
+            ttsInstance.shutdown()
+        }
+    }
+
+    val listState = rememberLazyListState()
+
+    // Auto-scroll on new message
+    LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    if (showVoiceDialog) {
+        VoiceInputDialog(
+            onResult = { spoken ->
+                viewModel.onInputTextChanged(
+                    if (inputText.isBlank()) spoken else "$inputText $spoken"
+                )
+            },
+            onDismiss = { showVoiceDialog = false }
+        )
+    }
+
+    if (showSettingsDialog) {
+        SettingsDialog(
+            selectedModel = selectedModel,
+            onModelSelected = { viewModel.setSelectedModel(it) },
+            customApiKey = customApiKey,
+            onApiKeyChanged = { viewModel.setCustomApiKey(it) },
+            onClearAllHistory = { viewModel.clearAllHistory() },
+            onDismiss = { showSettingsDialog = false }
+        )
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = MaterialTheme.colorScheme.surface
+            ) {
+                ChatDrawerContent(
+                    conversations = conversations,
+                    activeConversationId = activeConversationId,
+                    currentUser = currentUser,
+                    onSelectConversation = { convId ->
+                        viewModel.selectConversation(convId)
+                        coroutineScope.launch { drawerState.close() }
+                    },
+                    onNewChatClicked = {
+                        viewModel.startNewChat()
+                        coroutineScope.launch { drawerState.close() }
+                    },
+                    onDeleteConversation = { convId ->
+                        viewModel.deleteConversation(convId)
+                    },
+                    onOpenSettings = {
+                        showSettingsDialog = true
+                        coroutineScope.launch { drawerState.close() }
+                    },
+                    onSignOut = {
+                        viewModel.signOut()
+                        coroutineScope.launch { drawerState.close() }
+                    }
+                )
+            }
+        }
+    ) {
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                Column {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = "SAMADHAN AI",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(
+                                onClick = { coroutineScope.launch { drawerState.open() } },
+                                modifier = Modifier.testTag("drawer_toggle_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = "Open Chat Drawer",
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        },
+                        actions = {
+                            IconButton(
+                                onClick = { viewModel.startNewChat() },
+                                modifier = Modifier.testTag("top_new_chat_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "New Chat",
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background
+                        )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    )
+                }
+            },
+            bottomBar = {
+                ChatInputField(
+                    text = inputText,
+                    onTextChanged = { viewModel.onInputTextChanged(it) },
+                    onSendClicked = { viewModel.sendMessage() },
+                    onAttachClicked = {
+                        mediaPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onMicClicked = { showVoiceDialog = true },
+                    isGenerating = isGenerating,
+                    onStopClicked = { viewModel.stopGeneration() },
+                    selectedImageUri = selectedImageUri,
+                    onRemoveImage = { viewModel.setSelectedImageUri(null) },
+                    isImageMode = isImageMode,
+                    onToggleImageMode = { viewModel.setImageMode(!isImageMode) }
+                )
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                if (messages.isEmpty()) {
+                    // Empty state (Home Screen)
+                    HomeScreenCenterView(
+                        onSuggestionSelected = { suggestionText ->
+                            viewModel.sendMessage(customPrompt = suggestionText)
+                        },
+                        onCreateImageSelected = { prompt ->
+                            viewModel.setImageMode(true)
+                            viewModel.sendMessage(customPrompt = prompt)
+                        }
+                    )
+                } else {
+                    // Conversation list
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        items(messages, key = { it.id }) { message ->
+                            ChatMessageRow(
+                                message = message,
+                                onCopyText = { text ->
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Samadhan AI", text)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                },
+                                onShareText = { text ->
+                                    val sendIntent = Intent().apply {
+                                        action = Intent.ACTION_SEND
+                                        putExtra(Intent.EXTRA_TEXT, text)
+                                        type = "text/plain"
+                                    }
+                                    val shareIntent = Intent.createChooser(sendIntent, "Share response via")
+                                    context.startActivity(shareIntent)
+                                },
+                                onSpeakText = { text ->
+                                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                                },
+                                onRegenerateResponse = { viewModel.regenerateResponse(message) },
+                                onGenerateAgain = { viewModel.generateAgain(message) },
+                                onEditImage = { viewModel.prepareImageEdit(message) },
+                                onCreateAnother = { viewModel.createAnotherImage() }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreenCenterView(
+    onSuggestionSelected: (String) -> Unit,
+    onCreateImageSelected: (String) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    // AI Image Mode will be enabled later.
+    val suggestions = listOf(
+        "रचनात्मक लेखन" to "एक प्रेरक कहानी या विचारशील निबंध का प्रारूप तैयार करें",
+        "कोडिंग सहायता" to "Kotlin और Jetpack Compose में कोड उदाहरण दें",
+        "ईमेल का मसौदा" to "एक औपचारिक और प्रभावी ईमेल का मसौदा तैयार करें",
+        "समस्या का समाधान" to "किसी जटिल समस्या का चरणबद्ध समाधान खोजें"
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // Geometric Icon Emblem (Slate 900 rounded-2xl with 'S')
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "S",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontSize = 28.sp
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Center headline
+        Text(
+            text = "मैं आपकी कैसे मदद कर सकता हूँ?",
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 22.sp,
+                letterSpacing = (-0.3).sp,
+                lineHeight = 30.sp
+            ),
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Tagline
+        Text(
+            text = "सिर्फ जवाब नहीं — समाधान।",
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            color = MaterialTheme.colorScheme.secondary,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Subtitle
+        Text(
+            text = "कोई भी सवाल पूछें या अपनी समस्या बताएं।",
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontSize = 12.5.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Geometric 2x2 Balanced Grid for Prompts
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Row 1
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GeometricSuggestionCard(
+                    title = suggestions[0].first,
+                    modifier = Modifier.weight(1f),
+                    testTag = "suggestion_card_0",
+                    onClick = { onSuggestionSelected(suggestions[0].second) }
+                )
+                GeometricSuggestionCard(
+                    title = suggestions[1].first,
+                    modifier = Modifier.weight(1f),
+                    testTag = "suggestion_card_1",
+                    onClick = { onSuggestionSelected(suggestions[1].second) }
+                )
+            }
+            // Row 2
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GeometricSuggestionCard(
+                    title = suggestions[2].first,
+                    modifier = Modifier.weight(1f),
+                    testTag = "suggestion_card_2",
+                    onClick = { onSuggestionSelected(suggestions[2].second) }
+                )
+                GeometricSuggestionCard(
+                    title = suggestions[3].first,
+                    modifier = Modifier.weight(1f),
+                    testTag = "suggestion_card_3",
+                    onClick = { onSuggestionSelected(suggestions[3].second) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GeometricSuggestionCard(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String = ""
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(16.dp)
+            )
+            .clickable { onClick() }
+            .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+fun ChatMessageRow(
+    message: ChatMessageEntity,
+    onCopyText: (String) -> Unit,
+    onShareText: (String) -> Unit,
+    onSpeakText: (String) -> Unit,
+    onRegenerateResponse: () -> Unit = {},
+    onGenerateAgain: () -> Unit = {},
+    onEditImage: () -> Unit = {},
+    onCreateAnother: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val isUser = message.role == "user"
+
+    if (isUser) {
+        // User message bubble (Right aligned, subtle clean slate-100 pill)
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            val bubbleBg = AccentUserBubbleLight
+
+            Column(
+                modifier = Modifier
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 20.dp,
+                            topEnd = 20.dp,
+                            bottomStart = 20.dp,
+                            bottomEnd = 4.dp
+                        )
+                    )
+                    .background(bubbleBg)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .fillMaxWidth(0.85f),
+                horizontalAlignment = Alignment.End
+            ) {
+                if (message.imageUri != null) {
+                    AsyncImage(
+                        model = message.imageUri,
+                        contentDescription = "User uploaded image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .padding(bottom = 8.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                if (message.content.isNotEmpty()) {
+                    Text(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    } else {
+        // Assistant Message
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Role / Source label
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Samadhan AI",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                if (message.isStreaming) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 1.5.dp,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+
+            // If it is a Generated Image message
+            if (message.isGeneratedImage || (message.imageUri != null && !isUser)) {
+                if (message.isStreaming && message.imageUri == null) {
+                    // Loading placeholder
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.5.dp
+                            )
+                            Text(
+                                text = "छवि तैयार की जा रही है... (Generating image...)",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else if (message.imageUri != null) {
+                    // Generated Image Card
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                        ) {
+                            AsyncImage(
+                                model = message.imageUri,
+                                contentDescription = message.imagePrompt ?: "AI Generated Image",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(260.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        if (message.content.isNotBlank()) {
+                            Text(
+                                text = message.content,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = 12.5.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // Action buttons: [ Generate Again ], [ Edit Image ], [ Create Another ]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Generate Again Button
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                                    .clickable { onGenerateAgain() }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                                    .testTag("generate_again_button")
+                            ) {
+                                Text(
+                                    text = "🔄 Generate Again",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.5.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            // Edit Image Button
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                                    .clickable { onEditImage() }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                                    .testTag("edit_image_button")
+                            ) {
+                                Text(
+                                    text = "✏️ Edit Image",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.5.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            // Create Another Button
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                                    .clickable { onCreateAnother() }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                                    .testTag("create_another_button")
+                            ) {
+                                Text(
+                                    text = "✨ Create Another",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.5.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Message text content rendered as clean Markdown
+                if (message.content.isNotEmpty()) {
+                    MarkdownText(
+                        content = message.content,
+                        textColor = if (message.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
+                    )
+                } else if (message.isStreaming) {
+                    Text(
+                        text = "सोच रहा हूँ...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+
+            // Action toolbar (Copy, Share, Speak, Regenerate) for text messages
+            if (!message.isStreaming && message.content.isNotEmpty() && !message.isGeneratedImage) {
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { onCopyText(message.content) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy response",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onShareText(message.content) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share response",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onSpeakText(message.content) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VolumeUp,
+                            contentDescription = "Read aloud",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onRegenerateResponse() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Regenerate response",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
