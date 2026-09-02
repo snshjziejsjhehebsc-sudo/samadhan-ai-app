@@ -51,6 +51,9 @@ class VoiceManager(private val context: Context) {
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
+    private val _isDictating = MutableStateFlow(false)
+    val isDictating: StateFlow<Boolean> = _isDictating.asStateFlow()
+
     private val _rmsDb = MutableStateFlow(0f)
     val rmsDb: StateFlow<Float> = _rmsDb.asStateFlow()
 
@@ -65,9 +68,12 @@ class VoiceManager(private val context: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
+    private val elevenLabsService = ElevenLabsTtsService(context)
     private var isTtsInitialized = false
+    private var isCurrentlyCancelling = false
 
-    private var onSpeechResultCallback: ((String) -> Unit)? = null
+    private var onDictationCallback: ((text: String, isFinal: Boolean) -> Unit)? = null
+    private var onLiveSpeechResultCallback: ((String) -> Unit)? = null
     private var onTtsCompleteCallback: (() -> Unit)? = null
 
     init {
@@ -138,37 +144,69 @@ class VoiceManager(private val context: Context) {
         onSpeechResult: (String) -> Unit,
         onTtsComplete: () -> Unit
     ) {
-        this.onSpeechResultCallback = onSpeechResult
+        this.onLiveSpeechResultCallback = onSpeechResult
         this.onTtsCompleteCallback = onTtsComplete
     }
 
+    /**
+     * Feature 1: Voice Dictation (Inside Chat Input Field)
+     * Captures spoken words and places text directly into the input field.
+     * Does NOT auto-send.
+     */
+    fun startDictation(onResult: (text: String, isFinal: Boolean) -> Unit) {
+        this.onDictationCallback = onResult
+        _isDictating.value = true
+        startListeningInternal(isDictation = true)
+    }
+
+    /**
+     * Feature 2: Live AI Voice Conversation
+     * Captures user speech to directly converse with AI in real-time.
+     */
+    fun startLiveConversation(onResult: (String) -> Unit) {
+        this.onLiveSpeechResultCallback = onResult
+        _isDictating.value = false
+        startListeningInternal(isDictation = false)
+    }
+
+    /**
+     * Legacy helper forwarding to live conversation
+     */
     fun startListening(onResult: ((String) -> Unit)? = null) {
         if (onResult != null) {
-            this.onSpeechResultCallback = onResult
+            this.onLiveSpeechResultCallback = onResult
         }
+        _isDictating.value = false
+        startListeningInternal(isDictation = false)
+    }
 
+    private fun startListeningInternal(isDictation: Boolean) {
         stopSpeaking()
 
         if (!hasRecordPermission()) {
             _errorMessage.value = "माइक्रोफ़ोन अनुमति आवश्यक है (Microphone permission required)."
             _voiceState.value = VoiceAssistantState.ERROR
+            _isDictating.value = false
             return
         }
 
         if (!isNetworkAvailable()) {
             _errorMessage.value = "इंटरनेट कनेक्शन उपलब्ध नहीं है (No internet connection)."
             _voiceState.value = VoiceAssistantState.ERROR
+            _isDictating.value = false
             return
         }
 
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _errorMessage.value = "डिवाइस पर स्पीच रिकग्निशन उपलब्ध नहीं है (Speech recognition unavailable)."
             _voiceState.value = VoiceAssistantState.ERROR
+            _isDictating.value = false
             return
         }
 
         try {
             cleanupSpeechRecognizer()
+            isCurrentlyCancelling = false
 
             _liveSpokenText.value = ""
             _errorMessage.value = null
@@ -180,6 +218,7 @@ class VoiceManager(private val context: Context) {
                     override fun onReadyForSpeech(params: Bundle?) {
                         mainHandler.post {
                             _voiceState.value = VoiceAssistantState.LISTENING
+                            _errorMessage.value = null
                         }
                     }
 
@@ -206,19 +245,40 @@ class VoiceManager(private val context: Context) {
                     override fun onError(error: Int) {
                         mainHandler.post {
                             _rmsDb.value = 0f
-                            val errorDesc = when (error) {
-                                SpeechRecognizer.ERROR_NO_MATCH -> "कोई आवाज़ नहीं पहचानी गई (No speech recognized)"
-                                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "समय समाप्त। कोई आवाज़ नहीं मिली (Speech timeout)"
-                                SpeechRecognizer.ERROR_NETWORK,
-                                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "नेटवर्क त्रुटि: कृपया इंटरनेट चेक करें (Network error)"
-                                SpeechRecognizer.ERROR_AUDIO -> "ऑडियो रिकॉर्डिंग में समस्या आई (Audio error)"
-                                SpeechRecognizer.ERROR_CLIENT -> "क्लाइंट त्रुटि (Client error)"
-                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "वॉइस सेवा व्यस्त है (Recognizer busy)"
-                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "माइक्रोफ़ोन अनुमति आवश्यक है (Permission needed)"
-                                else -> "पहचान में समस्या आई (Error $error)"
+
+                            // Ignore harmless benign errors (client cancellation, silence timeouts, etc.)
+                            // Never show false "Voice Notice: Client error" notices!
+                            val isBenign = error == SpeechRecognizer.ERROR_CLIENT ||
+                                    error == SpeechRecognizer.ERROR_NO_MATCH ||
+                                    error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+                                    isCurrentlyCancelling
+
+                            if (isBenign) {
+                                _errorMessage.value = null
+                                if (_voiceState.value == VoiceAssistantState.LISTENING) {
+                                    _voiceState.value = VoiceAssistantState.IDLE
+                                }
+                                _isDictating.value = false
+                                return@post
                             }
-                            _errorMessage.value = errorDesc
-                            _voiceState.value = VoiceAssistantState.ERROR
+
+                            // Genuine failures (audio hardware, missing permissions, real network error)
+                            val errorDesc = when (error) {
+                                SpeechRecognizer.ERROR_NETWORK,
+                                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "नेटवर्क त्रुटि: कृपया इंटरनेट कनेक्शन चेक करें"
+                                SpeechRecognizer.ERROR_AUDIO -> "ऑडियो रिकॉर्डिंग में समस्या आई"
+                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "माइक्रोफ़ोन अनुमति आवश्यक है"
+                                else -> null
+                            }
+
+                            if (errorDesc != null) {
+                                _errorMessage.value = errorDesc
+                                _voiceState.value = VoiceAssistantState.ERROR
+                            } else {
+                                _errorMessage.value = null
+                                _voiceState.value = VoiceAssistantState.IDLE
+                            }
+                            _isDictating.value = false
                         }
                     }
 
@@ -227,13 +287,23 @@ class VoiceManager(private val context: Context) {
                             _rmsDb.value = 0f
                             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                             val finalSpeech = matches?.firstOrNull()?.trim()
+
                             if (!finalSpeech.isNullOrBlank()) {
                                 _liveSpokenText.value = finalSpeech
-                                _voiceState.value = VoiceAssistantState.THINKING
-                                onSpeechResultCallback?.invoke(finalSpeech)
+                                _errorMessage.value = null
+
+                                if (_isDictating.value) {
+                                    _isDictating.value = false
+                                    _voiceState.value = VoiceAssistantState.IDLE
+                                    onDictationCallback?.invoke(finalSpeech, true)
+                                } else {
+                                    _voiceState.value = VoiceAssistantState.THINKING
+                                    onLiveSpeechResultCallback?.invoke(finalSpeech)
+                                }
                             } else {
-                                _errorMessage.value = "कोई आवाज़ नहीं मिली (No speech detected)"
-                                _voiceState.value = VoiceAssistantState.ERROR
+                                _errorMessage.value = null
+                                _voiceState.value = VoiceAssistantState.IDLE
+                                _isDictating.value = false
                             }
                         }
                     }
@@ -244,6 +314,9 @@ class VoiceManager(private val context: Context) {
                             val partial = matches?.firstOrNull()?.trim()
                             if (!partial.isNullOrBlank()) {
                                 _liveSpokenText.value = partial
+                                if (_isDictating.value) {
+                                    onDictationCallback?.invoke(partial, false)
+                                }
                             }
                         }
                     }
@@ -261,7 +334,9 @@ class VoiceManager(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang.code)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                putExtra("android.speech.extra.DICTATION_MODE", true)
+                if (isDictation) {
+                    putExtra("android.speech.extra.DICTATION_MODE", true)
+                }
             }
 
             recognizer.startListening(intent)
@@ -269,24 +344,31 @@ class VoiceManager(private val context: Context) {
             Log.e(TAG, "Error starting speech recognizer", e)
             _errorMessage.value = "वॉइस रिकॉर्डिंग शुरू नहीं हो सकी: ${e.localizedMessage ?: "Unknown error"}"
             _voiceState.value = VoiceAssistantState.ERROR
+            _isDictating.value = false
         }
     }
 
     fun stopListening() {
+        isCurrentlyCancelling = true
         try {
             speechRecognizer?.stopListening()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping recognizer", e)
         }
         _rmsDb.value = 0f
+        _isDictating.value = false
+        _errorMessage.value = null
         if (_voiceState.value == VoiceAssistantState.LISTENING) {
             _voiceState.value = VoiceAssistantState.IDLE
         }
     }
 
     fun cancelListening() {
+        isCurrentlyCancelling = true
         cleanupSpeechRecognizer()
         _rmsDb.value = 0f
+        _isDictating.value = false
+        _errorMessage.value = null
         if (_voiceState.value == VoiceAssistantState.LISTENING) {
             _voiceState.value = VoiceAssistantState.IDLE
         }
@@ -296,27 +378,65 @@ class VoiceManager(private val context: Context) {
         stopListening()
         stopSpeaking()
         _voiceState.value = VoiceAssistantState.THINKING
+        _errorMessage.value = null
     }
 
     fun setIdleState() {
         cancelListening()
         stopSpeaking()
         _voiceState.value = VoiceAssistantState.IDLE
+        _isDictating.value = false
         _errorMessage.value = null
     }
 
     fun speak(text: String, onDone: (() -> Unit)? = null) {
-        if (!isTtsInitialized || textToSpeech == null) {
-            onDone?.invoke()
-            return
-        }
-
         if (onDone != null) {
             this.onTtsCompleteCallback = onDone
         }
 
         val cleanText = sanitizeForTts(text)
         if (cleanText.isBlank()) {
+            _voiceState.value = VoiceAssistantState.IDLE
+            _isSpeaking.value = false
+            onDone?.invoke()
+            return
+        }
+
+        // Try ElevenLabs AI Voice first if configured
+        if (elevenLabsService.isConfigured()) {
+            elevenLabsService.speak(
+                text = cleanText,
+                onStart = {
+                    mainHandler.post {
+                        _isSpeaking.value = true
+                        _voiceState.value = VoiceAssistantState.SPEAKING
+                    }
+                },
+                onDone = {
+                    mainHandler.post {
+                        _isSpeaking.value = false
+                        if (_voiceState.value == VoiceAssistantState.SPEAKING) {
+                            _voiceState.value = VoiceAssistantState.IDLE
+                        }
+                        onTtsCompleteCallback?.invoke()
+                        onDone?.invoke()
+                    }
+                },
+                onError = {
+                    Log.w(TAG, "ElevenLabs TTS failed, falling back to Android TextToSpeech")
+                    mainHandler.post {
+                        speakWithAndroidTts(cleanText, onDone)
+                    }
+                }
+            )
+        } else {
+            speakWithAndroidTts(cleanText, onDone)
+        }
+    }
+
+    private fun speakWithAndroidTts(cleanText: String, onDone: (() -> Unit)? = null) {
+        if (!isTtsInitialized || textToSpeech == null) {
+            _isSpeaking.value = false
             _voiceState.value = VoiceAssistantState.IDLE
             onDone?.invoke()
             return
@@ -326,7 +446,6 @@ class VoiceManager(private val context: Context) {
             val detectedLocale = detectLanguage(cleanText)
             val langResult = textToSpeech?.setLanguage(detectedLocale)
             if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                // Fallback to default
                 textToSpeech?.setLanguage(Locale.getDefault())
             }
 
@@ -336,7 +455,7 @@ class VoiceManager(private val context: Context) {
             val utteranceId = UUID.randomUUID().toString()
             textToSpeech?.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         } catch (e: Exception) {
-            Log.e(TAG, "Error in TTS speak", e)
+            Log.e(TAG, "Error in Android TTS speak", e)
             _isSpeaking.value = false
             _voiceState.value = VoiceAssistantState.IDLE
             onDone?.invoke()
@@ -344,6 +463,7 @@ class VoiceManager(private val context: Context) {
     }
 
     fun stopSpeaking() {
+        elevenLabsService.stop()
         try {
             textToSpeech?.stop()
         } catch (e: Exception) {
@@ -367,6 +487,7 @@ class VoiceManager(private val context: Context) {
 
     fun destroy() {
         cleanupSpeechRecognizer()
+        elevenLabsService.release()
         try {
             textToSpeech?.stop()
             textToSpeech?.shutdown()
@@ -414,3 +535,4 @@ class VoiceManager(private val context: Context) {
         }
     }
 }
+

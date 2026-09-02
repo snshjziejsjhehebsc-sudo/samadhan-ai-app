@@ -73,14 +73,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessageEntity
 import com.example.ui.components.ChatInputField
+import com.example.ui.components.LiveVoiceConversationDialog
 import com.example.ui.components.MarkdownText
 import com.example.ui.components.SettingsDialog
 import com.example.ui.components.VoiceAssistantBar
-import com.example.ui.components.VoiceInputDialog
 import com.example.ui.i18n.appStrings
 import com.example.ui.theme.AccentUserBubbleLight
 import com.example.voice.VoiceAssistantState
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.filled.GraphicEq
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,7 +106,10 @@ fun ChatScreen(
     val customApiKey by viewModel.customApiKey.collectAsStateWithLifecycle()
     val appLanguage by viewModel.appLanguage.collectAsStateWithLifecycle()
 
-    // Voice conversation states
+    // Voice conversation & dictation states
+    val isDictating by viewModel.isDictating.collectAsStateWithLifecycle()
+    val isLiveVoiceDialogOpen by viewModel.isLiveVoiceDialogOpen.collectAsStateWithLifecycle()
+    val lastAiResponse by viewModel.lastAiResponse.collectAsStateWithLifecycle()
     val voiceState by viewModel.voiceState.collectAsStateWithLifecycle()
     val isSpeaking by viewModel.isSpeaking.collectAsStateWithLifecycle()
     val rmsDb by viewModel.rmsDb.collectAsStateWithLifecycle()
@@ -114,7 +118,6 @@ fun ChatScreen(
     val isContinuousMode by viewModel.isContinuousVoiceMode.collectAsStateWithLifecycle()
     val isTtsEnabled by viewModel.isTtsEnabled.collectAsStateWithLifecycle()
 
-    var showVoiceDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
 
     // Media Picker for image attachments (Google Play compliant photo picker)
@@ -124,17 +127,32 @@ fun ChatScreen(
         viewModel.setSelectedImageUri(uri)
     }
 
-    // Permission launcher for microphone recording
-    val recordAudioLauncher = rememberLauncherForActivityResult(
+    // Permission launcher for dictation microphone
+    val dictationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            viewModel.startVoiceListening(continuous = false)
+            viewModel.startDictation()
         } else {
             Toast.makeText(
                 context,
                 strings.micPermissionRequired,
-                Toast.LENGTH_LONG
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    // Permission launcher for Live Voice Conversation
+    val liveVoicePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.openLiveVoiceConversation()
+        } else {
+            Toast.makeText(
+                context,
+                strings.micPermissionRequired,
+                Toast.LENGTH_SHORT
             ).show()
         }
     }
@@ -148,14 +166,18 @@ fun ChatScreen(
         }
     }
 
-    if (showVoiceDialog) {
-        VoiceInputDialog(
-            onResult = { spoken ->
-                viewModel.onInputTextChanged(
-                    if (inputText.isBlank()) spoken else "$inputText $spoken"
-                )
-            },
-            onDismiss = { showVoiceDialog = false }
+    // Live Voice Conversation Dialog (Feature 2)
+    if (isLiveVoiceDialogOpen) {
+        LiveVoiceConversationDialog(
+            voiceState = voiceState,
+            liveSpokenText = liveSpokenText,
+            lastAiResponse = lastAiResponse,
+            rmsDb = rmsDb,
+            isSpeaking = isSpeaking,
+            isTtsEnabled = isTtsEnabled,
+            errorMessage = voiceErrorMessage,
+            onToggleTts = { viewModel.toggleTtsEnabled() },
+            onEndConversation = { viewModel.closeLiveVoiceConversation() }
         )
     }
 
@@ -279,34 +301,6 @@ fun ChatScreen(
                 Column(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Real-time Voice Assistant Bar (Listening / Thinking / Speaking indicators & controls)
-                    VoiceAssistantBar(
-                        voiceState = voiceState,
-                        liveSpokenText = liveSpokenText,
-                        rmsDb = rmsDb,
-                        isSpeaking = isSpeaking,
-                        isContinuousMode = isContinuousMode,
-                        errorMessage = voiceErrorMessage,
-                        onStopListening = { viewModel.stopVoiceConversation() },
-                        onStopSpeaking = { viewModel.stopSpeaking() },
-                        onToggleContinuousMode = {
-                            if (isContinuousMode) {
-                                viewModel.stopVoiceConversation()
-                            } else {
-                                val hasPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                                if (hasPermission) {
-                                    viewModel.startVoiceListening(continuous = true)
-                                } else {
-                                    recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            }
-                        },
-                        onCloseVoiceMode = { viewModel.stopVoiceConversation() }
-                    )
-
                     ChatInputField(
                         text = inputText,
                         onTextChanged = { viewModel.onInputTextChanged(it) },
@@ -323,13 +317,25 @@ fun ChatScreen(
                             ) == PackageManager.PERMISSION_GRANTED
 
                             if (hasPermission) {
-                                if (voiceState == VoiceAssistantState.LISTENING) {
-                                    viewModel.stopVoiceConversation()
+                                if (isDictating) {
+                                    viewModel.stopDictation()
                                 } else {
-                                    viewModel.startVoiceListening(continuous = false)
+                                    viewModel.startDictation()
                                 }
                             } else {
-                                recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                dictationPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                        onLiveVoiceClicked = {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+
+                            if (hasPermission) {
+                                viewModel.openLiveVoiceConversation()
+                            } else {
+                                liveVoicePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             }
                         },
                         isGenerating = isGenerating,
@@ -338,7 +344,7 @@ fun ChatScreen(
                         onRemoveImage = { viewModel.setSelectedImageUri(null) },
                         isImageMode = isImageMode,
                         onToggleImageMode = { viewModel.setImageMode(!isImageMode) },
-                        isListening = voiceState == VoiceAssistantState.LISTENING
+                        isListening = isDictating
                     )
                 }
             }

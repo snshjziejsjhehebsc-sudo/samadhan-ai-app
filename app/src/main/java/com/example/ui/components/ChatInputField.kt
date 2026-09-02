@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ fun ChatInputField(
     onSendClicked: () -> Unit,
     onAttachClicked: () -> Unit,
     onMicClicked: () -> Unit,
+    onLiveVoiceClicked: () -> Unit = {},
     isGenerating: Boolean,
     onStopClicked: () -> Unit,
     selectedImageUri: Uri?,
@@ -248,41 +250,7 @@ fun ChatInputField(
                 )
             }
 
-            // Microphone Icon
-            if (isListening) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .clickable { onMicClicked() }
-                        .testTag("mic_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = strings.activeVoiceInputTooltip,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            } else {
-                IconButton(
-                    onClick = onMicClicked,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .testTag("mic_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = strings.voiceInputTooltip,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            // Geometric Send / Stop button
+            // Action button (Generating: Stop | Has text: Send Arrow | Empty: Dictation Mic)
             if (isGenerating) {
                 Box(
                     modifier = Modifier
@@ -300,24 +268,14 @@ fun ChatInputField(
                         modifier = Modifier.size(18.dp)
                     )
                 }
-            } else {
-                val hasContent = text.isNotBlank() || selectedImageUri != null
-                val sendBgColor = if (hasContent) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                }
-
+            } else if (text.isNotBlank() || selectedImageUri != null) {
+                // Text or image exists -> Show Send Arrow button
                 Box(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(sendBgColor)
-                        .clickable {
-                            if (hasContent) {
-                                onSendClicked()
-                            }
-                        }
+                        .background(MaterialTheme.colorScheme.primary)
+                        .clickable { onSendClicked() }
                         .testTag("send_button"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -328,6 +286,55 @@ fun ChatInputField(
                         modifier = Modifier.size(19.dp)
                     )
                 }
+            } else {
+                // Empty input -> Show Voice Dictation Microphone button
+                if (isListening) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable { onMicClicked() }
+                            .testTag("mic_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = strings.dictatingActiveTooltip,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = onMicClicked,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("mic_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = strings.dictationMicTooltip,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
+            // Live AI Voice Conversation button
+            IconButton(
+                onClick = onLiveVoiceClicked,
+                modifier = Modifier
+                    .size(38.dp)
+                    .testTag("live_voice_conversation_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.GraphicEq,
+                    contentDescription = strings.liveVoiceButtonTooltip,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 

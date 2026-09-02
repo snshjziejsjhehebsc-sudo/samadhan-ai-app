@@ -80,6 +80,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _isImageMode = MutableStateFlow(false)
     val isImageMode: StateFlow<Boolean> = _isImageMode.asStateFlow()
 
+    // Dictation state
+    val isDictating: StateFlow<Boolean> = voiceManager.isDictating
+
+    // Live AI Voice Conversation state
+    private val _isLiveVoiceDialogOpen = MutableStateFlow(false)
+    val isLiveVoiceDialogOpen: StateFlow<Boolean> = _isLiveVoiceDialogOpen.asStateFlow()
+
+    private val _lastAiResponse = MutableStateFlow("")
+    val lastAiResponse: StateFlow<String> = _lastAiResponse.asStateFlow()
+
     // Generation state
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
@@ -178,6 +188,37 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         sharedPrefs.edit().putString("custom_api_key", key).apply()
     }
 
+    // Voice Dictation (Feature 1: Inside Chat Input Field)
+    fun startDictation() {
+        voiceManager.stopSpeaking()
+        val previousText = _inputText.value
+        voiceManager.startDictation { recognizedSpeech, isFinal ->
+            // Place recognized speech in input field. Do NOT automatically send the message.
+            if (previousText.isBlank()) {
+                _inputText.value = recognizedSpeech
+            } else {
+                _inputText.value = "$previousText $recognizedSpeech"
+            }
+        }
+    }
+
+    fun stopDictation() {
+        voiceManager.stopListening()
+    }
+
+    // Live AI Voice Conversation (Feature 2: Dedicated Real-time Mode)
+    fun openLiveVoiceConversation() {
+        _isLiveVoiceDialogOpen.value = true
+        _isContinuousVoiceMode.value = true
+        _lastAiResponse.value = ""
+        startVoiceListening(continuous = true)
+    }
+
+    fun closeLiveVoiceConversation() {
+        _isLiveVoiceDialogOpen.value = false
+        stopVoiceConversation()
+    }
+
     // Voice conversation controls
     fun toggleTtsEnabled() {
         val newValue = !_isTtsEnabled.value
@@ -194,7 +235,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startVoiceListening(continuous: Boolean = false) {
         _isContinuousVoiceMode.value = continuous
-        voiceManager.startListening { recognizedText ->
+        voiceManager.startLiveConversation { recognizedText ->
             sendMessage(customPrompt = recognizedText, fromVoice = true)
         }
     }
@@ -485,6 +526,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     val cleanResponse = finalContent.ifEmpty { "जवाब प्राप्त करने में असमर्थ। कृपया पुनः प्रयास करें।" }
+                    _lastAiResponse.value = cleanResponse
 
                     // Mark streaming completed
                     dao.updateMessage(

@@ -39,11 +39,19 @@ interface AppStrings {
     val attachFileTooltip: String
     val voiceInputTooltip: String
     val activeVoiceInputTooltip: String
+    val dictationMicTooltip: String
+    val dictatingActiveTooltip: String
     val stopGenerationTooltip: String
     val sendMessageTooltip: String
     val aiImageMode: String
     val exitImageMode: String
     val removeAttachedImage: String
+
+    // Live Voice Conversation
+    val liveVoiceButtonTooltip: String
+    val liveVoiceTitle: String
+    val liveVoiceSubtitle: String
+    val endVoiceConversation: String
 
     // Home / Welcome View
     val welcomeTitle: String
@@ -160,11 +168,18 @@ object EnglishStrings : AppStrings {
     override val attachFileTooltip = "Attach file or image"
     override val voiceInputTooltip = "Voice input"
     override val activeVoiceInputTooltip = "Active voice input"
+    override val dictationMicTooltip = "Voice dictation (Speak to write)"
+    override val dictatingActiveTooltip = "Dictating... Tap to finish"
     override val stopGenerationTooltip = "Stop"
     override val sendMessageTooltip = "Send"
     override val aiImageMode = "AI Image Mode"
     override val exitImageMode = "Exit Image Mode"
     override val removeAttachedImage = "Remove attached image"
+
+    override val liveVoiceButtonTooltip = "Live AI Voice Conversation"
+    override val liveVoiceTitle = "Live AI Voice Conversation"
+    override val liveVoiceSubtitle = "Speak naturally with Samadhan AI"
+    override val endVoiceConversation = "End Conversation"
 
     override val welcomeTitle = "How can I help you today?"
     override val welcomeSubtitle = "Ask any question or share a problem to solve."
@@ -275,11 +290,18 @@ object HindiStrings : AppStrings {
     override val attachFileTooltip = "फ़ाइल या छवि जोड़ें"
     override val voiceInputTooltip = "आवाज़ इनपुट"
     override val activeVoiceInputTooltip = "सक्रिय आवाज़ इनपुट"
+    override val dictationMicTooltip = "वॉइस डिक्टेशन (बोलकर लिखें)"
+    override val dictatingActiveTooltip = "डिक्टेशन जारी है... समाप्त करने के लिए टैप करें"
     override val stopGenerationTooltip = "रोकें"
     override val sendMessageTooltip = "भेजें"
     override val aiImageMode = "AI छवि मोड"
     override val exitImageMode = "छवि मोड से बाहर निकलें"
     override val removeAttachedImage = "संलग्न छवि हटाएं"
+
+    override val liveVoiceButtonTooltip = "लाइव AI वॉइस बातचीत"
+    override val liveVoiceTitle = "लाइव AI वॉइस बातचीत"
+    override val liveVoiceSubtitle = "समाधान AI के साथ स्वाभाविक रूप से बात करें"
+    override val endVoiceConversation = "बातचीत समाप्त करें"
 
     override val welcomeTitle = "मैं आपकी कैसे मदद कर सकता हूँ?"
     override val welcomeSubtitle = "कोई भी सवाल पूछें या अपनी समस्या बताएं।"
