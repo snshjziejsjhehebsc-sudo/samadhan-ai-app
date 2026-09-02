@@ -22,7 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -48,6 +47,7 @@ import coil.compose.AsyncImage
 import com.example.data.auth.UserProfile
 import com.example.data.model.ConversationEntity
 import com.example.ui.components.DeleteConfirmDialog
+import com.example.ui.i18n.appStrings
 
 @Composable
 fun ChatDrawerContent(
@@ -61,13 +61,16 @@ fun ChatDrawerContent(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = appStrings()
     var conversationToDelete by remember { mutableStateOf<ConversationEntity?>(null) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
     if (conversationToDelete != null) {
         DeleteConfirmDialog(
-            title = "बातचीत हटाएं?",
-            message = "क्या आप \"${conversationToDelete?.title}\" को हटाना चाहते हैं?",
+            title = strings.deleteChatTitle,
+            message = strings.deleteChatConfirmMessage(conversationToDelete?.title ?: ""),
+            confirmText = strings.delete,
+            dismissText = strings.cancel,
             onConfirm = {
                 conversationToDelete?.let { onDeleteConversation(it.id) }
                 conversationToDelete = null
@@ -78,8 +81,10 @@ fun ChatDrawerContent(
 
     if (showLogoutConfirm) {
         DeleteConfirmDialog(
-            title = "लॉग आउट करें? (Log out)",
-            message = "क्या आप Samadhan AI से लॉग आउट करना चाहते हैं?",
+            title = strings.logoutTitle,
+            message = strings.logoutMessage,
+            confirmText = strings.logout,
+            dismissText = strings.cancel,
             onConfirm = {
                 showLogoutConfirm = false
                 onSignOut()
@@ -115,7 +120,7 @@ fun ChatDrawerContent(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Not just answers — solutions.",
+                    text = strings.tagline,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium
@@ -144,12 +149,12 @@ fun ChatDrawerContent(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "New Chat",
+                        contentDescription = strings.newChatButton,
                         tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "New Chat",
+                        text = strings.newChatButton,
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp
@@ -163,7 +168,7 @@ fun ChatDrawerContent(
 
             // Recent Chats Label
             Text(
-                text = "Recent Chats",
+                text = strings.recentChats,
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
@@ -183,7 +188,7 @@ fun ChatDrawerContent(
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
-                        text = "कोई पिछला चैट नहीं है।\nनया सवाल पूछकर शुरू करें!",
+                        text = strings.noRecentChats,
                         style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
@@ -242,7 +247,7 @@ fun ChatDrawerContent(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = "Delete chat",
+                                    contentDescription = strings.deleteChatTooltip,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -271,12 +276,12 @@ fun ChatDrawerContent(
             ) {
                 Icon(
                     imageVector = Icons.Default.Settings,
-                    contentDescription = "Settings",
+                    contentDescription = strings.settings,
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Settings",
+                    text = strings.settings,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp
@@ -337,7 +342,7 @@ fun ChatDrawerContent(
                         // User Name & Email
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = currentUser?.name ?: "User",
+                                text = currentUser?.name ?: strings.user,
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
@@ -347,7 +352,7 @@ fun ChatDrawerContent(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = currentUser?.email ?: "Logged in",
+                                text = currentUser?.email ?: strings.loggedIn,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontSize = 11.5.sp
                                 ),
@@ -367,7 +372,7 @@ fun ChatDrawerContent(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = "Log out",
+                            contentDescription = strings.logout,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
@@ -377,3 +382,4 @@ fun ChatDrawerContent(
         }
     }
 }
+

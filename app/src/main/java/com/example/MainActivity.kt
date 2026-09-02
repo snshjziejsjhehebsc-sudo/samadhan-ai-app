@@ -9,9 +9,12 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.i18n.LocalAppStrings
+import com.example.ui.i18n.strings
 import com.example.ui.screens.AuthViewModel
 import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.ChatViewModel
@@ -28,18 +31,22 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-          val isLoggedIn by authViewModel.isLoggedIn.collectAsStateWithLifecycle()
+        val appLanguage by chatViewModel.appLanguage.collectAsStateWithLifecycle()
 
-          Crossfade(
-            targetState = isLoggedIn,
-            animationSpec = tween(durationMillis = 300),
-            label = "AuthNavigationTransition"
-          ) { loggedIn ->
-            if (loggedIn) {
-              ChatScreen(viewModel = chatViewModel)
-            } else {
-              LoginScreen(viewModel = authViewModel)
+        CompositionLocalProvider(LocalAppStrings provides appLanguage.strings) {
+          Surface(modifier = Modifier.fillMaxSize()) {
+            val isLoggedIn by authViewModel.isLoggedIn.collectAsStateWithLifecycle()
+
+            Crossfade(
+              targetState = isLoggedIn,
+              animationSpec = tween(durationMillis = 300),
+              label = "AuthNavigationTransition"
+            ) { loggedIn ->
+              if (loggedIn) {
+                ChatScreen(viewModel = chatViewModel)
+              } else {
+                LoginScreen(viewModel = authViewModel)
+              }
             }
           }
         }
@@ -47,5 +54,6 @@ class MainActivity : ComponentActivity() {
     }
   }
 }
+
 
 

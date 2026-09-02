@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.i18n.appStrings
 
 @Composable
 fun LoginScreen(
@@ -66,6 +67,7 @@ fun LoginScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val strings = appStrings()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
@@ -129,7 +131,7 @@ fun LoginScreen(
 
                 // Taglines
                 Text(
-                    text = "Not just answers — solutions.",
+                    text = strings.tagline,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.Medium
@@ -141,7 +143,7 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "सिर्फ जवाब नहीं — समाधान।",
+                    text = strings.taglineHindi,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Normal
@@ -187,7 +189,7 @@ fun LoginScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "Dismiss error",
+                                        contentDescription = strings.dismissError,
                                         tint = MaterialTheme.colorScheme.onErrorContainer,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -248,7 +250,7 @@ fun LoginScreen(
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text(
-                                        text = "Continue with Google",
+                                        text = strings.continueWithGoogle,
                                         style = MaterialTheme.typography.labelLarge.copy(
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 15.sp
@@ -290,7 +292,7 @@ fun LoginScreen(
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text(
-                                    text = "Continue with Email",
+                                    text = strings.continueWithEmail,
                                     style = MaterialTheme.typography.labelLarge.copy(
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 15.sp
@@ -320,7 +322,7 @@ fun LoginScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (isSignUpMode) "Create Account" else "Sign In with Email",
+                                    text = if (isSignUpMode) strings.createAccount else strings.signInWithEmail,
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 16.sp
@@ -344,7 +346,7 @@ fun LoginScreen(
                                 OutlinedTextField(
                                     value = nameInput,
                                     onValueChange = { nameInput = it },
-                                    label = { Text("Full Name", fontSize = 13.sp) },
+                                    label = { Text(strings.fullName, fontSize = 13.sp) },
                                     leadingIcon = {
                                         Icon(
                                             Icons.Default.Person,
@@ -368,7 +370,7 @@ fun LoginScreen(
                             OutlinedTextField(
                                 value = emailInput,
                                 onValueChange = { emailInput = it },
-                                label = { Text("Email address", fontSize = 13.sp) },
+                                label = { Text(strings.emailAddress, fontSize = 13.sp) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.Email,
@@ -395,7 +397,7 @@ fun LoginScreen(
                             OutlinedTextField(
                                 value = passwordInput,
                                 onValueChange = { passwordInput = it },
-                                label = { Text("Password", fontSize = 13.sp) },
+                                label = { Text(strings.password, fontSize = 13.sp) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.Lock,
@@ -408,7 +410,7 @@ fun LoginScreen(
                                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                         Icon(
                                             imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                            contentDescription = "Toggle password visibility",
+                                            contentDescription = strings.togglePassword,
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -470,7 +472,7 @@ fun LoginScreen(
                                     )
                                 } else {
                                     Text(
-                                        text = if (isSignUpMode) "Sign Up" else "Sign In",
+                                        text = if (isSignUpMode) strings.signUp else strings.signIn,
                                         style = MaterialTheme.typography.labelLarge.copy(
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 15.sp
@@ -485,7 +487,7 @@ fun LoginScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (isSignUpMode) "Already have an account?" else "Don't have an account?",
+                                    text = if (isSignUpMode) strings.alreadyHaveAccount else strings.dontHaveAccount,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -496,7 +498,7 @@ fun LoginScreen(
                                     }
                                 ) {
                                     Text(
-                                        text = if (isSignUpMode) "Sign In" else "Sign Up",
+                                        text = if (isSignUpMode) strings.signIn else strings.signUp,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.5.sp,
@@ -512,7 +514,7 @@ fun LoginScreen(
 
             // Bottom subtle note
             Text(
-                text = "Secure AI • Private & Confidential",
+                text = strings.confidentialityNotice,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 10.sp,
                     letterSpacing = 0.8.sp,
@@ -525,3 +527,4 @@ fun LoginScreen(
         }
     }
 }
+

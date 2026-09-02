@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -28,7 +27,6 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
@@ -50,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.ui.i18n.appStrings
 
 @Composable
 fun ChatInputField(
@@ -64,8 +63,11 @@ fun ChatInputField(
     onRemoveImage: () -> Unit,
     isImageMode: Boolean = false,
     onToggleImageMode: () -> Unit = {},
+    isListening: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val strings = appStrings()
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -102,7 +104,7 @@ fun ChatInputField(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = "AI Image Mode",
+                            text = strings.aiImageMode,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.5.sp
@@ -111,7 +113,7 @@ fun ChatInputField(
                         )
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Exit Image Mode",
+                            contentDescription = strings.exitImageMode,
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier
                                 .size(14.dp)
@@ -155,7 +157,7 @@ fun ChatInputField(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Remove attached image",
+                                contentDescription = strings.removeAttachedImage,
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
@@ -165,7 +167,7 @@ fun ChatInputField(
             }
         }
 
-        // Geometric Balance main input container (Rounded-3xl pill with Slate 50 background and subtle border)
+        // Geometric Balance main input container
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -179,23 +181,6 @@ fun ChatInputField(
                 .padding(horizontal = 6.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // AI Image Mode will be enabled later.
-            /*
-            IconButton(
-                onClick = onToggleImageMode,
-                modifier = Modifier
-                    .size(38.dp)
-                    .testTag("create_image_mode_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Image,
-                    contentDescription = "Create Image Mode",
-                    tint = if (isImageMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            */
-
             // Attachment Icon
             IconButton(
                 onClick = onAttachClicked,
@@ -205,7 +190,7 @@ fun ChatInputField(
             ) {
                 Icon(
                     imageVector = Icons.Default.AttachFile,
-                    contentDescription = "Attach file or image",
+                    contentDescription = strings.attachFileTooltip,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     modifier = Modifier.size(20.dp)
                 )
@@ -250,7 +235,7 @@ fun ChatInputField(
                         ) {
                             if (text.isEmpty()) {
                                 Text(
-                                    text = if (isImageMode) "Describe image to generate / edit..." else "Message Samadhan AI...",
+                                    text = if (isImageMode) strings.imageInputPlaceholder else strings.inputPlaceholder,
                                     style = TextStyle(
                                         fontSize = 14.5.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
@@ -264,21 +249,40 @@ fun ChatInputField(
             }
 
             // Microphone Icon
-            IconButton(
-                onClick = onMicClicked,
-                modifier = Modifier
-                    .size(38.dp)
-                    .testTag("mic_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = "Voice input",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    modifier = Modifier.size(20.dp)
-                )
+            if (isListening) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .clickable { onMicClicked() }
+                        .testTag("mic_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = strings.activeVoiceInputTooltip,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = onMicClicked,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("mic_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = strings.voiceInputTooltip,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
-            // Geometric Send / Stop button (Slate 900 circular action button)
+            // Geometric Send / Stop button
             if (isGenerating) {
                 Box(
                     modifier = Modifier
@@ -291,7 +295,7 @@ fun ChatInputField(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Stop,
-                        contentDescription = "Stop generation",
+                        contentDescription = strings.stopGenerationTooltip,
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -319,7 +323,7 @@ fun ChatInputField(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "Send message",
+                        contentDescription = strings.sendMessageTooltip,
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(19.dp)
                     )
@@ -331,7 +335,7 @@ fun ChatInputField(
 
         // Geometric Balance footer notice
         Text(
-            text = "AI CAN MAKE MISTAKES. VERIFY IMPORTANT INFO.",
+            text = strings.disclaimer,
             style = MaterialTheme.typography.labelSmall.copy(
                 fontSize = 9.5.sp,
                 fontWeight = FontWeight.Medium,
@@ -343,5 +347,6 @@ fun ChatInputField(
         )
     }
 }
+
 
 

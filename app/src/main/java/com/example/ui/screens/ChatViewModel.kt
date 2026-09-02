@@ -11,7 +11,12 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.ChatMessageEntity
 import com.example.data.model.ConversationEntity
 import com.example.data.remote.GeminiRepository
+import com.example.ui.i18n.AppLanguage
+import com.example.voice.VoiceAssistantState
+import com.example.voice.VoiceLanguage
+import com.example.voice.VoiceManager
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +33,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GeminiRepository(application)
     private val authRepository = AuthRepository(application)
     private val sharedPrefs = application.getSharedPreferences("samadhan_ai_prefs", Context.MODE_PRIVATE)
+
+    // Voice & Conversational Assistant Manager
+    val voiceManager = VoiceManager(application)
+    val voiceState: StateFlow<VoiceAssistantState> = voiceManager.voiceState
+    val isSpeaking: StateFlow<Boolean> = voiceManager.isSpeaking
+    val rmsDb: StateFlow<Float> = voiceManager.rmsDb
+    val liveSpokenText: StateFlow<String> = voiceManager.liveSpokenText
+    val voiceErrorMessage: StateFlow<String?> = voiceManager.errorMessage
+    val selectedVoiceLanguage: StateFlow<VoiceLanguage> = voiceManager.selectedLanguage
+
+    // Continuous conversational voice mode (back-and-forth conversation)
+    private val _isContinuousVoiceMode = MutableStateFlow(false)
+    val isContinuousVoiceMode: StateFlow<Boolean> = _isContinuousVoiceMode.asStateFlow()
+
+    // AI voice responses enabled / disabled toggle
+    private val _isTtsEnabled = MutableStateFlow(
+        sharedPrefs.getBoolean("is_tts_enabled", true)
+    )
+    val isTtsEnabled: StateFlow<Boolean> = _isTtsEnabled.asStateFlow()
 
     // User Profile
     val currentUser: StateFlow<UserProfile?> = authRepository.currentUser
@@ -78,10 +102,38 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     )
     val customApiKey: StateFlow<String> = _customApiKey.asStateFlow()
 
+    // Interface Language (English / Hindi)
+    private val _appLanguage = MutableStateFlow(
+        AppLanguage.fromCode(sharedPrefs.getString("app_language", "en"))
+    )
+    val appLanguage: StateFlow<AppLanguage> = _appLanguage.asStateFlow()
+
+    fun setAppLanguage(language: AppLanguage) {
+        _appLanguage.value = language
+        sharedPrefs.edit().putString("app_language", language.code).apply()
+    }
+
     private var messageCollectionJob: Job? = null
     private var generationJob: Job? = null
 
     init {
+        // Setup default voice callbacks
+        voiceManager.setCallbacks(
+            onSpeechResult = { recognizedText ->
+                sendMessage(customPrompt = recognizedText, fromVoice = true)
+            },
+            onTtsComplete = {
+                if (_isContinuousVoiceMode.value) {
+                    viewModelScope.launch {
+                        delay(250)
+                        if (_isContinuousVoiceMode.value && !_isGenerating.value) {
+                            startVoiceListening(continuous = true)
+                        }
+                    }
+                }
+            }
+        )
+
         // Observe conversation changes
         viewModelScope.launch {
             _activeConversationId.collectLatest { convId ->
@@ -126,11 +178,47 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         sharedPrefs.edit().putString("custom_api_key", key).apply()
     }
 
+    // Voice conversation controls
+    fun toggleTtsEnabled() {
+        val newValue = !_isTtsEnabled.value
+        _isTtsEnabled.value = newValue
+        sharedPrefs.edit().putBoolean("is_tts_enabled", newValue).apply()
+        if (!newValue) {
+            voiceManager.stopSpeaking()
+        }
+    }
+
+    fun setVoiceLanguage(language: VoiceLanguage) {
+        voiceManager.setLanguage(language)
+    }
+
+    fun startVoiceListening(continuous: Boolean = false) {
+        _isContinuousVoiceMode.value = continuous
+        voiceManager.startListening { recognizedText ->
+            sendMessage(customPrompt = recognizedText, fromVoice = true)
+        }
+    }
+
+    fun stopVoiceConversation() {
+        _isContinuousVoiceMode.value = false
+        voiceManager.setIdleState()
+    }
+
+    fun stopSpeaking() {
+        voiceManager.stopSpeaking()
+    }
+
+    fun speakMessage(text: String) {
+        voiceManager.speak(text)
+    }
+
     fun signOut() {
+        stopVoiceConversation()
         authRepository.signOut()
     }
 
     fun startNewChat() {
+        stopVoiceConversation()
         generationJob?.cancel()
         _isGenerating.value = false
         _activeConversationId.value = null
@@ -141,6 +229,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectConversation(conversationId: String) {
+        stopVoiceConversation()
         generationJob?.cancel()
         _isGenerating.value = false
         _activeConversationId.value = conversationId
@@ -169,6 +258,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun stopGeneration() {
         generationJob?.cancel()
         _isGenerating.value = false
+        voiceManager.setIdleState()
     }
 
     fun generateAgain(message: ChatMessageEntity) {
@@ -192,7 +282,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _inputText.value = ""
     }
 
-    // AI Image Mode will be enabled later.
+    // AI Image Mode
     fun generateImageMessage(prompt: String, referenceImageUri: Uri? = null) {
         if (prompt.isBlank() || _isGenerating.value) return
 
@@ -298,20 +388,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendMessage(customPrompt: String? = null, customImageUri: Uri? = null) {
+    fun sendMessage(
+        customPrompt: String? = null,
+        customImageUri: Uri? = null,
+        fromVoice: Boolean = false
+    ) {
         val messageText = (customPrompt ?: _inputText.value).trim()
         val imageUri = customImageUri ?: _selectedImageUri.value
 
         if (messageText.isBlank() && imageUri == null) return
         if (_isGenerating.value) return
 
-        // AI Image Mode will be enabled later.
-        /*
-        if (_isImageMode.value || (imageUri == null && GeminiRepository.isImagePrompt(messageText))) {
-            generateImageMessage(messageText, imageUri)
-            return
-        }
-        */
+        // Stop TTS speaking when user sends a new message
+        voiceManager.stopSpeaking()
 
         // Clear inputs
         _inputText.value = ""
@@ -369,6 +458,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             dao.insertMessage(initialAssistantMessage)
 
             _isGenerating.value = true
+            if (fromVoice || _isContinuousVoiceMode.value) {
+                voiceManager.setThinkingState()
+            }
 
             // Fetch previous messages for context
             val contextMessages = dao.getMessagesListForConversation(convId).filter { it.id != assistantMsgId && it.id != userMsgId }
@@ -392,21 +484,55 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
 
+                    val cleanResponse = finalContent.ifEmpty { "जवाब प्राप्त करने में असमर्थ। कृपया पुनः प्रयास करें।" }
+
                     // Mark streaming completed
                     dao.updateMessage(
                         initialAssistantMessage.copy(
-                            content = finalContent.ifEmpty { "जवाब प्राप्त करने में असमर्थ। कृपया पुनः प्रयास करें।" },
+                            content = cleanResponse,
                             isStreaming = false
                         )
                     )
+
+                    // Speak response if TTS is enabled or if triggered from voice
+                    if ((fromVoice || _isContinuousVoiceMode.value || _isTtsEnabled.value) && _isTtsEnabled.value) {
+                        voiceManager.speak(cleanResponse) {
+                            if (_isContinuousVoiceMode.value) {
+                                viewModelScope.launch {
+                                    delay(200)
+                                    if (_isContinuousVoiceMode.value && !_isGenerating.value) {
+                                        startVoiceListening(continuous = true)
+                                    }
+                                }
+                            }
+                        }
+                    } else if (_isContinuousVoiceMode.value) {
+                        viewModelScope.launch {
+                            delay(500)
+                            if (_isContinuousVoiceMode.value && !_isGenerating.value) {
+                                startVoiceListening(continuous = true)
+                            }
+                        }
+                    } else {
+                        voiceManager.setIdleState()
+                    }
+
                 } catch (e: Exception) {
+                    val errorText = "त्रुटि: ${e.localizedMessage ?: "Unknown error"}"
                     dao.updateMessage(
                         initialAssistantMessage.copy(
-                            content = "त्रुटि: ${e.localizedMessage ?: "Unknown error"}",
+                            content = errorText,
                             isStreaming = false,
                             isError = true
                         )
                     )
+                    if (fromVoice || _isContinuousVoiceMode.value) {
+                        if (_isTtsEnabled.value) {
+                            voiceManager.speak("माफ़ कीजिए, कोई तकनीकी समस्या आई।")
+                        } else {
+                            voiceManager.setIdleState()
+                        }
+                    }
                 } finally {
                     _isGenerating.value = false
                 }
@@ -464,13 +590,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
 
+                    val cleanResponse = finalContent.ifEmpty { "जवाब प्राप्त करने में असमर्थ। कृपया पुनः प्रयास करें।" }
+
                     dao.updateMessage(
                         targetMessage.copy(
-                            content = finalContent.ifEmpty { "जवाब प्राप्त करने में असमर्थ। कृपया पुनः प्रयास करें।" },
+                            content = cleanResponse,
                             isStreaming = false,
                             isError = false
                         )
                     )
+
+                    if (_isTtsEnabled.value) {
+                        voiceManager.speak(cleanResponse)
+                    }
                 } catch (e: Exception) {
                     dao.updateMessage(
                         targetMessage.copy(
@@ -485,4 +617,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        voiceManager.destroy()
+    }
 }
+
