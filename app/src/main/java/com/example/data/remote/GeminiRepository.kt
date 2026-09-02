@@ -27,12 +27,13 @@ class GeminiRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "GeminiRepository"
-        const val DEFAULT_MODEL = "gemini-2.5-flash"
+        const val DEFAULT_MODEL = "gemini-3.6-flash"
+        const val MODEL_GEMINI_3_6_FLASH = "gemini-3.6-flash"
         const val MODEL_GEMINI_3_5_FLASH = "gemini-3.5-flash"
         const val MODEL_GEMINI_3_7_FLASH = "gemini-3.7-flash"
 
         val AVAILABLE_MODELS = listOf(
-            "gemini-2.5-flash" to "Gemini 2.5 Flash (Fast & Balanced)",
+            "gemini-3.6-flash" to "Gemini 3.6 Flash (Fast & Balanced)",
             "gemini-3.5-flash" to "Gemini 3.5 Flash (Advanced Reasoning)",
             "gemini-3.7-flash" to "Gemini 3.7 Flash (Next-Gen Hybrid)"
         )
@@ -204,13 +205,19 @@ class GeminiRepository(private val context: Context) {
             )
         )
 
+        val effectiveModel = when {
+            modelName.contains("2.5") -> DEFAULT_MODEL
+            modelName.isNotBlank() -> modelName.trim().removePrefix("models/")
+            else -> DEFAULT_MODEL
+        }
+
         // Try streaming first, fallback to standard generate if streaming format fails
         var accumulatedText = ""
         var streamingSucceeded = false
 
         try {
             val responseBody = apiService.streamGenerateContent(
-                model = modelName,
+                model = effectiveModel,
                 apiKey = apiKey,
                 request = request
             )
@@ -252,7 +259,7 @@ class GeminiRepository(private val context: Context) {
             // Fallback to standard synchronous generateContent call
             try {
                 val nonStreamResponse = apiService.generateContent(
-                    model = modelName,
+                    model = effectiveModel,
                     apiKey = apiKey,
                     request = request
                 )

@@ -61,9 +61,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
 
     // Settings
-    private val _selectedModel = MutableStateFlow(
-        sharedPrefs.getString("selected_model", GeminiRepository.DEFAULT_MODEL) ?: GeminiRepository.DEFAULT_MODEL
-    )
+    private val _selectedModel: MutableStateFlow<String> = run {
+        val saved = sharedPrefs.getString("selected_model", GeminiRepository.DEFAULT_MODEL)
+        val sanitized = if (saved == null || saved.contains("2.5") || saved.isBlank()) {
+            sharedPrefs.edit().putString("selected_model", GeminiRepository.DEFAULT_MODEL).apply()
+            GeminiRepository.DEFAULT_MODEL
+        } else {
+            saved.removePrefix("models/")
+        }
+        MutableStateFlow(sanitized)
+    }
     val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
 
     private val _customApiKey = MutableStateFlow(
@@ -105,8 +112,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setSelectedModel(model: String) {
-        _selectedModel.value = model
-        sharedPrefs.edit().putString("selected_model", model).apply()
+        val sanitized = if (model.contains("2.5") || model.isBlank()) {
+            GeminiRepository.DEFAULT_MODEL
+        } else {
+            model.trim().removePrefix("models/")
+        }
+        _selectedModel.value = sanitized
+        sharedPrefs.edit().putString("selected_model", sanitized).apply()
     }
 
     fun setCustomApiKey(key: String) {
